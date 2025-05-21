@@ -1,0 +1,296 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft Clone</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        #inventory { position: fixed; top: 10px; left: 10px; color: white; font-size: 18px; }
+        #watermark {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            font-size: 14px;
+            opacity: 0.5;
+        }
+        #crosshair {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background-color: rgba(169, 169, 169, 0.8); /* Default gray color */
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+        }
+        #extraText {
+            position: fixed;
+            bottom: 30px;
+            left: 10px;
+            color: white;
+            font-size: 14px;
+            opacity: 0.5;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="inventory">Current Block: Grass</div>
+    <div id="extraText">Terms & conditions: By using this game, you agree to follow the basic game mechanics and abide by the rules of fair play. Enjoy your building experience- plz Press "T" for the terms of contract </div>
+    <div id="watermark">BY: Stellan</div>
+    <div id="crosshair"></div>
+    <script>
+        // Basic setup for Three.js
+        var scene = new THREE.Scene();
+        var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        var renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+
+        // Controls and variables
+        var isFlying = false;
+        var currentBlock = 'grass';
+        var moveSpeed = 0.1;
+        var rotationSpeed = 0.02;
+        var keys = {};
+        var inventory = ['grass', 'dirt', 'stone', 'wood', 'glass', 'delete']; // Inventory items
+        var currentBlockIndex = 0;
+        var cameraSpeed = 0.5;
+        var gridSize = 1;
+        var raycaster = new THREE.Raycaster();
+        var mouse = new THREE.Vector2();
+
+
+        // Blocks with their colors
+        var blocks = {
+            grass: { color: 0x00ff00, name: 'Grass' },
+            dirt: { color: 0x8B4513, name: 'Dirt' },
+            stone: { color: 0x808080, name: 'Stone' },
+            wood: { color: 0x8B4513, name: 'Wood' },
+            glass: { color: 0x80b3ff, name: 'Glass', transparent: true, opacity: 0.5 },
+            delete: { color: 0x000000, name: 'Delete' }
+        };
+
+
+        // Crosshair element
+        var crosshair = document.getElementById('crosshair');
+
+
+        // Create a small block with 8 small cubes arranged in a grid
+        function createRemixedBlock(x, y, z, blockType) {
+            var smallBlockSize = 0.5; // Each small block's size is 0.5 (to fit 8 in 1 full block)
+            var positions = [
+                { x: x - 0.25, y: y + 0.25, z: z - 0.25 },
+                { x: x + 0.25, y: y + 0.25, z: z - 0.25 },
+                { x: x - 0.25, y: y + 0.25, z: z + 0.25 },
+                { x: x + 0.25, y: y + 0.25, z: z + 0.25 },
+                { x: x - 0.25, y: y - 0.25, z: z - 0.25 },
+                { x: x + 0.25, y: y - 0.25, z: z - 0.25 },
+                { x: x - 0.25, y: y - 0.25, z: z + 0.25 },
+                { x: x + 0.25, y: y - 0.25, z: z + 0.25 }
+            ];
+            
+            var colors;
+            switch (blockType) {
+                case 'grass':
+                    colors = [0x00ff00, 0x32CD32, 0x228B22, 0x006400,  0x8B4513, 0xA0522D, 0xD2691E, 0xCD853F];
+                    break;
+                case 'dirt':
+                    colors = [0x8B4513, 0xA0522D, 0xD2691E, 0xCD853F, 0x8B4513, 0xA0522D, 0xD2691E, 0xCD853F];
+                    break;
+                case 'stone':
+                    colors = [0x808080, 0x696969, 0xA9A9A9, 0xD3D3D3, 0x808080, 0x696969, 0xA9A9A9, 0xD3D3D3];
+                    break;
+                case 'wood':
+                    colors = [0x8B4513, 0xA0522D, 0xD2691E, 0x8B4513, 0xA0522D, 0xD2691E, 0x8B4513, 0xA0522D];
+                    break;
+                case 'glass':
+                    colors = [0x80b3ff, 0x3399ff, 0x66ccff, 0x0099cc, 0x80b3ff, 0x3399ff, 0x66ccff, 0x0099cc];
+                    break;
+                default:
+                    colors = [0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000];
+            }
+
+
+            var group = new THREE.Group(); 
+
+
+            for (var i = 0; i < 8; i++) {
+                var geometry = new THREE.BoxGeometry(smallBlockSize, smallBlockSize, smallBlockSize);
+                var material = new THREE.MeshBasicMaterial({ color: colors[i] });
+                var cube = new THREE.Mesh(geometry, material);
+                cube.position.set(positions[i].x, positions[i].y, positions[i].z);
+                group.add(cube);
+            }
+
+
+            return group;
+        }
+
+
+        // Create a small platform
+        var platformSize = 25; 
+        for (var i = 0; i < platformSize; i++) {
+            for (var j = 0; j < platformSize; j++) {
+                scene.add(createRemixedBlock(i * gridSize - platformSize / 2, 0, j * gridSize - platformSize / 2, 'grass'));
+            }
+        }
+
+
+        // Flying setup
+        function toggleFlying() {
+            isFlying = !isFlying;
+            if (isFlying) {
+                camera.position.y += 5;
+            }
+        }
+
+
+        // Movement controls
+        window.addEventListener("keydown", function(event) {
+            keys[event.key] = true;
+        });
+
+
+        window.addEventListener("keyup", function(event) {
+            keys[event.key] = false;
+        });
+
+
+        // Block placement and removal logic
+        function placeOrRemoveBlock() {
+            var direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+            var blockPosition = camera.position.clone().add(direction.multiplyScalar(2)); 
+
+
+            blockPosition.x = Math.round(blockPosition.x / gridSize) * gridSize;
+            blockPosition.y = Math.round(blockPosition.y / gridSize) * gridSize;
+            blockPosition.z = Math.round(blockPosition.z / gridSize) * gridSize;
+
+
+            if (inventory[currentBlockIndex] === 'delete') {
+                raycaster.update();
+                var intersects = raycaster.intersectObjects(scene.children);
+                if (intersects.length > 0) {
+                    var objectToRemove = intersects[0].object;
+                    scene.remove(objectToRemove); 
+                    scene.add(createRemixedBlock(blockPosition.x, blockPosition.y, blockPosition.z, inventory[currentBlockIndex]));
+                }
+            } else {
+                scene.add(createRemixedBlock(blockPosition.x, blockPosition.y, blockPosition.z, inventory[currentBlockIndex]));
+            }
+        }
+
+
+        // Cycle forward through blocks (E)
+        window.addEventListener('keydown', function(event) {
+            if (event.key === 'e') {
+                currentBlockIndex = (currentBlockIndex + 1) % inventory.length;
+                updateInventory();
+            } else if (event.key === 'q') {
+                currentBlockIndex = (currentBlockIndex - 1 + inventory.length) % inventory.length;
+                updateInventory();
+            } else if (event.key === ' ') { 
+                placeOrRemoveBlock();
+            } else if (event.key === 't') { 
+                // Redirect to the provided Google Docs link when T is pressed
+                window.location.href = 'https://docs.google.com/document/d/19GVTUaEtGMLkWsgVCEmr254nJlBSg-NnKATWjrOq_1E/edit?tab=t.0'; 
+            }
+        });
+
+
+        // Update inventory block
+        function updateInventory() {
+            document.getElementById('inventory').innerText = 'Current Block: ' + blocks[inventory[currentBlockIndex]].name;
+        }
+
+
+        // Draw outline on the block you're about to place
+        var outlineMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true });
+        var outlineMesh = new THREE.Mesh(new THREE.BoxGeometry(gridSize, gridSize, gridSize), outlineMaterial);
+
+
+        // Update outline position based on camera direction
+        function updateOutline() {
+            var direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+            var blockPosition = camera.position.clone().add(direction.multiplyScalar(2));
+
+
+            blockPosition.x = Math.round(blockPosition.x / gridSize) * gridSize;
+            blockPosition.y = Math.round(blockPosition.y / gridSize) * gridSize;
+            blockPosition.z = Math.round(blockPosition.z / gridSize) * gridSize;
+
+
+            outlineMesh.position.set(blockPosition.x, blockPosition.y, blockPosition.z);
+        }
+
+
+        // Add outline mesh to the scene
+        scene.add(outlineMesh);
+
+
+        // Update raycaster position
+        function updateRaycaster() {
+            var direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+            raycaster.ray.origin.copy(camera.position);
+            raycaster.ray.direction.copy(direction);
+        }
+
+
+        // Camera movement
+        function updateCamera() {
+            updateRaycaster();
+
+
+            var direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+
+
+            var right = new THREE.Vector3();
+            right.crossVectors(camera.up, direction);
+
+
+            if (keys['w']) camera.position.add(direction.multiplyScalar(moveSpeed));
+            if (keys['s']) camera.position.sub(direction.multiplyScalar(moveSpeed));
+            if (keys['a']) camera.position.add(right.multiplyScalar(moveSpeed));
+            if (keys['d']) camera.position.sub(right.multiplyScalar(moveSpeed));
+
+
+            if (keys['i']) camera.position.y += moveSpeed;
+            if (keys['k']) camera.position.y -= moveSpeed;
+
+
+            if (keys['ArrowLeft']) camera.rotation.y -= rotationSpeed;
+            if (keys['ArrowRight']) camera.rotation.y += rotationSpeed;
+            if (keys['ArrowUp']) camera.rotation.x -= rotationSpeed;
+            if (keys['ArrowDown']) camera.rotation.x += rotationSpeed;
+
+
+            if (keys['Shift'] && !isFlying) toggleFlying();
+        }
+
+
+        // Animation loop
+        var animate = function() {
+            requestAnimationFrame(animate);
+            updateCamera();
+            updateOutline();
+            renderer.render(scene, camera);
+        };
+
+
+        camera.position.z = 10;
+        camera.position.y = 5;
+
+
+        animate();
+    </script>
+</body>
+</html>
